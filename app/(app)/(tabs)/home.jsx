@@ -2,31 +2,27 @@
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Dimensions,
   FlatList,
   Image,
   Linking,
+  Platform,
   RefreshControl,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
-  Dimensions,
 } from "react-native";
 import { useAuth } from "../../../context/AuthContext";
 import Header from "../../components/Header";
 import api from "../../utils/auth";
 
+const isWeb = Platform.OS === "web";
 const isPin = (p) => /^[1-9][0-9]{5}$/.test(String(p || "").trim());
 
 // helpers
@@ -47,11 +43,6 @@ const shortText = (v = "", max = 120) => {
 const safe = (v, fallback = "") =>
   v === undefined || v === null || String(v).trim() === "" ? fallback : v;
 
-/**
- * Robust pin extraction helper:
- * tries many common keys and nested objects for pincode/postalCode/pin/pinCode
- * Returns either the raw string or null.
- */
 const getPinFromItem = (item) => {
   if (!item || typeof item !== "object") return null;
 
@@ -64,7 +55,6 @@ const getPinFromItem = (item) => {
     return null;
   };
 
-  // direct keys on root
   const direct = tryKeys(item, [
     "businessPincode",
     "businessPinCode",
@@ -79,7 +69,6 @@ const getPinFromItem = (item) => {
   ]);
   if (direct) return String(direct);
 
-  // check nested likely objects
   const nestedContainers = [
     "address",
     "location",
@@ -106,7 +95,6 @@ const getPinFromItem = (item) => {
     if (nested) return String(nested);
   }
 
-  // sometimes item has an array of addresses or locations
   const arrCandidates = ["addresses", "locations", "places"];
   for (const a of arrCandidates) {
     const arr = item[a];
@@ -125,9 +113,8 @@ const getPinFromItem = (item) => {
     }
   }
 
-  // fallback: try to find any value in object values that looks like a pin (6-digit)
   const values = JSON.stringify(item);
-  const match = values.match(/([1-9][0-9]{5})/); // first 6-digit starting 1-9
+  const match = values.match(/([1-9][0-9]{5})/);
   if (match) return match[1];
 
   return null;
@@ -136,14 +123,41 @@ const getPinFromItem = (item) => {
 export default function HomeScreen() {
   const router = useRouter();
   const { token, logout } = useAuth();
-  const [businesses, setBusinesses] = useState([]); // raw objects
+  const [businesses, setBusinesses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchPincode, setSearchPincode] = useState("");
   const [isSearching, setIsSearching] = useState(false);
-
-  // which items have expanded "show more"
   const [expandedIds, setExpandedIds] = useState(() => new Set());
+  const [screenWidth, setScreenWidth] = useState(
+    Dimensions.get("window").width
+  );
+  const [isLargeScreen, setIsLargeScreen] = useState(screenWidth >= 1024);
+
+  // Handle window resize on web
+  useEffect(() => {
+    if (isWeb) {
+      const updateDimensions = () => {
+        const newWidth = window.innerWidth;
+        setScreenWidth(newWidth);
+        setIsLargeScreen(newWidth >= 1024);
+      };
+
+      window.addEventListener("resize", updateDimensions);
+      return () => window.removeEventListener("resize", updateDimensions);
+    }
+  }, []);
+
+  // Calculate responsive values
+  const containerMaxWidth = isWeb ? (isLargeScreen ? 1200 : 1000) : "100%";
+  const cardGap = isWeb ? 20 : 12;
+  const numColumns = isWeb
+    ? isLargeScreen
+      ? 4
+      : screenWidth >= 768
+      ? 3
+      : 2
+    : 2;
 
   const fetchNearbyBusinesses = useCallback(
     async (pincode = "") => {
@@ -180,7 +194,6 @@ export default function HomeScreen() {
           });
         }
 
-        // Ensure items are objects and not null
         items = items.map((it, idx) =>
           it && typeof it === "object" ? it : { _raw: it, idx }
         );
@@ -281,13 +294,16 @@ export default function HomeScreen() {
     [router]
   );
 
-  // card sizing
-  const { width } = Dimensions.get("window");
-  const horizontalPadding = 12 * 2;
-  const gutter = 12;
-  const cardWidth = Math.floor((width - horizontalPadding - gutter) / 2);
+  // Calculate card width based on screen size
+  const calculateCardWidth = () => {
+    const containerPadding = isWeb ? 40 : 24;
+    const totalGap = cardGap * (numColumns - 1);
+    const availableWidth = screenWidth - containerPadding - totalGap;
+    return Math.floor(availableWidth / numColumns);
+  };
 
-  // toggle expand
+  const cardWidth = calculateCardWidth();
+
   const toggleExpand = useCallback((id) => {
     setExpandedIds((prev) => {
       const next = new Set(prev);
@@ -297,7 +313,6 @@ export default function HomeScreen() {
     });
   }, []);
 
-  // render concise card with banner + circular avatar and details
   const renderCard = useCallback(
     ({ item, index }) => {
       const id = String(item._id || item.id || index);
@@ -312,9 +327,7 @@ export default function HomeScreen() {
       const phone =
         item.businessPhone || item.phone || item.contactNumber || null;
 
-      // NEW: robust pin extraction
       const rawPin = getPinFromItem(item);
-      // If we got a pin-like string, use the first 6 digits; otherwise null
       let displayPin = null;
       if (rawPin) {
         const digits = String(rawPin).match(/\d+/g)?.join("") || String(rawPin);
@@ -326,7 +339,6 @@ export default function HomeScreen() {
         item.address || item.locationAddress || item.line || item.street || "";
       const rating = item.rating || item.avgRating || item.stars || null;
 
-      // businessDescription (tries several keys)
       const businessDescription =
         item.businessDescription ||
         item.description ||
@@ -335,7 +347,6 @@ export default function HomeScreen() {
         item.shortDescription ||
         "";
 
-      // images (try common keys)
       const bannerUri =
         item.banner ||
         item.coverImage ||
@@ -353,7 +364,6 @@ export default function HomeScreen() {
 
       const expanded = expandedIds.has(id);
 
-      // create initials fallback for avatar
       const initials = (title || "B")
         .split(" ")
         .map((s) => s[0])
@@ -365,7 +375,15 @@ export default function HomeScreen() {
         <TouchableOpacity
           activeOpacity={0.95}
           onPress={() => handleOpenDetails(item)}
-          style={[styles.card, { width: cardWidth }]}
+          style={[
+            styles.card,
+            isWeb && styles.webCard,
+            {
+              width: cardWidth,
+              marginRight: cardGap,
+              marginBottom: cardGap,
+            },
+          ]}
         >
           {/* Banner */}
           <View style={styles.bannerWrap}>
@@ -379,7 +397,7 @@ export default function HomeScreen() {
               <View style={styles.bannerPlaceholder} />
             )}
 
-            {/* circular avatar overlaps */}
+            {/* Circular avatar */}
             <View style={styles.avatarContainer}>
               {avatarUri ? (
                 <Image source={{ uri: avatarUri }} style={styles.avatar} />
@@ -393,14 +411,16 @@ export default function HomeScreen() {
 
           {/* Body */}
           <View style={styles.cardBody}>
-            <Text style={styles.nameText} numberOfLines={1}>
+            <Text
+              style={[styles.nameText, isWeb && styles.webNameText]}
+              numberOfLines={1}
+            >
               {title}
             </Text>
 
-            {/* NEW: business description (shows truncated unless expanded) */}
             {businessDescription ? (
               <Text
-                style={styles.description}
+                style={[styles.description, isWeb && styles.webDescription]}
                 numberOfLines={expanded ? 6 : 2}
                 ellipsizeMode="tail"
               >
@@ -408,73 +428,70 @@ export default function HomeScreen() {
               </Text>
             ) : null}
 
-            {/* subtitle / tagline */}
             {subtitle ? (
-              <Text style={styles.taglineText} numberOfLines={1}>
+              <Text
+                style={[styles.taglineText, isWeb && styles.webTaglineText]}
+                numberOfLines={1}
+              >
                 {shortText(subtitle, 60)}
               </Text>
             ) : null}
 
-            {/* phone row */}
+            {/* Contact info */}
             <View style={styles.infoRow}>
-              <Ionicons name="call" size={16} color="#10b981" />
-              <Text style={styles.phoneText}>{phone || "No phone"}</Text>
+              <Ionicons name="call" size={isWeb ? 18 : 16} color="#10b981" />
+              <Text style={[styles.phoneText, isWeb && styles.webPhoneText]}>
+                {phone || "No phone"}
+              </Text>
             </View>
 
-            {/* pincode row - now robustly extracted */}
+            {/* Pincode */}
             <View style={styles.pinRow}>
-              <MaterialIcons name="place" size={14} color="#ef4444" />
-              <Text style={styles.pinLabel}>Pincode:</Text>
-              <Text style={styles.pinValue}>
+              <MaterialIcons
+                name="place"
+                size={isWeb ? 16 : 14}
+                color="#ef4444"
+              />
+              <Text style={[styles.pinLabel, isWeb && styles.webPinLabel]}>
+                Pincode:
+              </Text>
+              <Text style={[styles.pinValue, isWeb && styles.webPinValue]}>
                 {displayPin ? String(displayPin) : "—"}
               </Text>
             </View>
 
-            {/* footer actions */}
-            <View style={styles.footerRow}>
+            {/* Footer actions */}
+            <View style={[styles.footerRow, isWeb && styles.webFooterRow]}>
               <TouchableOpacity
                 onPress={() => (phone ? handleCall(phone) : null)}
-                style={styles.callBtn}
+                style={[styles.callBtn, isWeb && styles.webCallBtn]}
                 activeOpacity={0.85}
               >
-                <Ionicons name="call" size={14} color="#fff" />
-                <Text style={styles.callBtnText}>Call</Text>
+                <Ionicons name="call" size={isWeb ? 16 : 14} color="#fff" />
+                <Text
+                  style={[styles.callBtnText, isWeb && styles.webCallBtnText]}
+                >
+                  Call
+                </Text>
               </TouchableOpacity>
 
-              <View style={styles.rightActions}>
-                {/* <TouchableOpacity
-                  onPress={() => toggleExpand(id)}
-                  style={styles.showMoreBtn}
-                  activeOpacity={0.85}
+              <TouchableOpacity
+                onPress={() => handleOpenDetails(item)}
+                style={[styles.detailsBtn, isWeb && styles.webDetailsBtn]}
+                activeOpacity={0.85}
+              >
+                <Text
+                  style={[styles.detailsText, isWeb && styles.webDetailsText]}
                 >
-                  <Text style={styles.showMoreText}>
-                    {expanded ? "Hide" : "Show more"}
-                  </Text>
-                </TouchableOpacity> */}
-
-                <TouchableOpacity
-                  onPress={() => handleOpenDetails(item)}
-                  style={styles.detailsBtn}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.detailsText}>Details</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* expanded JSON (optional debug) */}
-            {expanded && (
-              <View style={styles.expandedJson}>
-                <Text style={styles.jsonText}>
-                  {JSON.stringify(item, null, 2)}
+                  Details
                 </Text>
-              </View>
-            )}
+              </TouchableOpacity>
+            </View>
           </View>
         </TouchableOpacity>
       );
     },
-    [cardWidth, expandedIds, handleCall, handleOpenDetails, toggleExpand]
+    [cardWidth, cardGap, expandedIds, handleCall, handleOpenDetails]
   );
 
   const keyExtractor = useCallback((item, index) => {
@@ -483,84 +500,115 @@ export default function HomeScreen() {
 
   const listEmpty = useMemo(
     () => (
-      <View style={styles.emptyContainer}>
-        <Text style={styles.emptyText}>
+      <View style={[styles.emptyContainer, isWeb && styles.webEmptyContainer]}>
+        <Text style={[styles.emptyText, isWeb && styles.webEmptyText]}>
           {loading ? "Loading..." : "No businesses found"}
         </Text>
         {!loading && (
           <TouchableOpacity
-            style={{ marginTop: 8 }}
+            style={[styles.clearFilterBtn, isWeb && styles.webClearFilterBtn]}
             onPress={() => {
               setSearchPincode("");
               fetchNearbyBusinesses("");
             }}
           >
-            <Text style={{ color: "#2563eb", fontWeight: "600" }}>
+            <Text
+              style={[
+                styles.clearFilterText,
+                isWeb && styles.webClearFilterText,
+              ]}
+            >
               Clear filter
             </Text>
           </TouchableOpacity>
         )}
       </View>
     ),
-    [loading, fetchNearbyBusinesses]
+    [loading, fetchNearbyBusinesses, isWeb]
   );
 
   return (
-    <View style={styles.container}>
-      <View style={{ marginTop: 35 }}>
+    <View style={[styles.container, isWeb && styles.webContainer]}>
+      <View style={{ marginTop: isWeb ? 20 : 35 }}>
         <Header />
       </View>
 
-      <Text style={styles.heading}>Nearby Businesses</Text>
+      <View style={[styles.headerSection, isWeb && styles.webHeaderSection]}>
+        <Text style={[styles.heading, isWeb && styles.webHeading]}>
+          Nearby Businesses
+        </Text>
 
-      <View style={styles.searchBox}>
-        <Ionicons name="search" size={18} />
-        <TextInput
-          placeholder="Enter Pincode"
-          style={styles.input}
-          value={searchPincode}
-          onChangeText={setSearchPincode}
-          keyboardType="numeric"
-          maxLength={6}
-          returnKeyType="search"
-          onSubmitEditing={handleSearch}
-        />
+        <View
+          style={[styles.searchContainer, isWeb && styles.webSearchContainer]}
+        >
+          <View style={[styles.searchBox, isWeb && styles.webSearchBox]}>
+            <Ionicons name="search" size={isWeb ? 22 : 18} color="#64748b" />
+            <TextInput
+              placeholder="Enter Pincode"
+              style={[styles.input, isWeb && styles.webInput]}
+              value={searchPincode}
+              onChangeText={setSearchPincode}
+              keyboardType="numeric"
+              maxLength={6}
+              returnKeyType="search"
+              onSubmitEditing={handleSearch}
+            />
+          </View>
+
+          <TouchableOpacity
+            style={[
+              styles.searchBtn,
+              isSearching && styles.searchBtnDisabled,
+              isWeb && styles.webSearchBtn,
+            ]}
+            onPress={handleSearch}
+            disabled={isSearching}
+          >
+            {isSearching ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Text
+                style={[styles.searchBtnText, isWeb && styles.webSearchBtnText]}
+              >
+                Search
+              </Text>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
-      <TouchableOpacity
-        style={[styles.searchBtn, isSearching && styles.searchBtnDisabled]}
-        onPress={handleSearch}
-        disabled={isSearching}
-      >
-        {isSearching ? (
-          <ActivityIndicator color="#fff" size="small" />
-        ) : (
-          <Text style={styles.searchBtnText}>Search</Text>
-        )}
-      </TouchableOpacity>
-
       {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" />
-          <Text style={styles.loadingText}>Loading nearby businesses...</Text>
+        <View
+          style={[styles.loadingContainer, isWeb && styles.webLoadingContainer]}
+        >
+          <ActivityIndicator size={isWeb ? "large" : "large"} color="#2563eb" />
+          <Text style={[styles.loadingText, isWeb && styles.webLoadingText]}>
+            Loading nearby businesses...
+          </Text>
         </View>
       ) : (
         <FlatList
           data={businesses}
           keyExtractor={keyExtractor}
           renderItem={renderCard}
-          numColumns={2}
-          columnWrapperStyle={{ justifyContent: "space-between" }}
-          contentContainerStyle={{ marginTop: 15, paddingBottom: 20 }}
+          numColumns={numColumns}
+          columnWrapperStyle={
+            isWeb ? null : { justifyContent: "space-between" }
+          }
+          contentContainerStyle={[
+            styles.listContent,
+            isWeb && styles.webListContent,
+            { paddingBottom: 40 },
+          ]}
           ListEmptyComponent={listEmpty}
-          showsVerticalScrollIndicator={false}
+          showsVerticalScrollIndicator={isWeb}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
           removeClippedSubviews
-          initialNumToRender={6}
-          windowSize={7}
-          maxToRenderPerBatch={8}
+          initialNumToRender={isWeb ? 12 : 6}
+          windowSize={isWeb ? 10 : 7}
+          maxToRenderPerBatch={isWeb ? 15 : 8}
           updateCellsBatchingPeriod={50}
         />
       )}
@@ -569,8 +617,54 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f7f8fa", padding: 12 },
-  heading: { fontSize: 22, fontWeight: "700", margin: 16, textAlign: "center" },
+  container: {
+    flex: 1,
+    backgroundColor: "#f7f8fa",
+    padding: 12,
+  },
+  webContainer: {
+    maxWidth: 1200,
+    alignSelf: "center",
+    width: "100%",
+    paddingHorizontal: 40,
+    paddingTop: 20,
+  },
+
+  headerSection: {
+    marginBottom: 20,
+  },
+  webHeaderSection: {
+    marginBottom: 40,
+    alignItems: "center",
+  },
+
+  heading: {
+    fontSize: 22,
+    fontWeight: "700",
+    margin: 16,
+    textAlign: "center",
+    color: "#1e293b",
+  },
+  webHeading: {
+    fontSize: 36,
+    fontWeight: "800",
+    marginBottom: 24,
+    color: "#0f172a",
+  },
+
+  searchContainer: {
+    flexDirection: "column",
+  },
+  webSearchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 16,
+    maxWidth: 600,
+    alignSelf: "center",
+    width: "100%",
+  },
+
   searchBox: {
     flexDirection: "row",
     alignItems: "center",
@@ -581,7 +675,26 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#ddd",
   },
-  input: { flex: 1, marginLeft: 6 },
+  webSearchBox: {
+    flex: 1,
+    height: 52,
+    borderRadius: 30,
+    paddingHorizontal: 20,
+    borderWidth: 2,
+    borderColor: "#e2e8f0",
+    backgroundColor: "white",
+  },
+
+  input: {
+    flex: 1,
+    marginLeft: 6,
+    fontSize: 16,
+  },
+  webInput: {
+    fontSize: 18,
+    marginLeft: 12,
+  },
+
   searchBtn: {
     backgroundColor: "#2563eb",
     paddingVertical: 12,
@@ -591,9 +704,32 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     height: 45,
   },
+  webSearchBtn: {
+    marginTop: 0,
+    height: 52,
+    width: 150,
+    borderRadius: 30,
+    borderWidth: 2,
+    borderColor: "#2563eb",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+  },
   searchBtnDisabled: { backgroundColor: "#94a3b8" },
-  searchBtnText: { color: "#fff", fontWeight: "600", fontSize: 16 },
 
+  searchBtnText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 16,
+  },
+  webSearchBtnText: {
+    fontSize: 18,
+    fontWeight: "700",
+  },
+
+  // Card Styles
   card: {
     backgroundColor: "#fff",
     borderRadius: 12,
@@ -604,14 +740,29 @@ const styles = StyleSheet.create({
     elevation: 3,
     overflow: "hidden",
   },
+  webCard: {
+    borderRadius: 16,
+    marginBottom: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: "#f1f5f9",
+    transition: "transform 0.2s ease",
+  },
 
-  /* banner & avatar */
   bannerWrap: {
     height: 110,
     backgroundColor: "#eef2ff",
     alignItems: "center",
     justifyContent: "center",
   },
+  webBannerWrap: {
+    height: 140,
+  },
+
   bannerImage: {
     ...StyleSheet.absoluteFillObject,
     width: "100%",
@@ -621,6 +772,7 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "#eef2ff",
   },
+
   avatarContainer: {
     position: "absolute",
     bottom: -28,
@@ -638,7 +790,18 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 4,
   },
+  webAvatarContainer: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    bottom: -32,
+    left: 20,
+    borderWidth: 5,
+  },
+
   avatar: { width: 64, height: 64, borderRadius: 32 },
+  webAvatar: { width: 74, height: 74, borderRadius: 37 },
+
   avatarFallback: {
     width: 64,
     height: 64,
@@ -647,20 +810,55 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarInitials: { color: "#0f172a", fontWeight: "700", fontSize: 18 },
+  webAvatarFallback: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    backgroundColor: "#dbeafe",
+  },
+
+  avatarInitials: {
+    color: "#0f172a",
+    fontWeight: "700",
+    fontSize: 18,
+  },
+  webAvatarInitials: {
+    fontSize: 22,
+    fontWeight: "800",
+  },
 
   cardBody: {
-    paddingTop: 36, // space for overlapping avatar
+    paddingTop: 36,
     paddingHorizontal: 16,
     paddingBottom: 12,
   },
+  webCardBody: {
+    paddingTop: 44,
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+  },
+
   nameText: {
     fontSize: 16,
     fontWeight: "800",
     color: "#0f172a",
     marginBottom: 4,
   },
-  taglineText: { color: "#64748b", fontSize: 13, marginBottom: 8 },
+  webNameText: {
+    fontSize: 20,
+    fontWeight: "800",
+    marginBottom: 8,
+  },
+
+  taglineText: {
+    color: "#64748b",
+    fontSize: 13,
+    marginBottom: 8,
+  },
+  webTaglineText: {
+    fontSize: 14,
+    marginBottom: 12,
+  },
 
   description: {
     fontSize: 13,
@@ -668,24 +866,68 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     lineHeight: 18,
   },
+  webDescription: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 12,
+  },
 
-  infoRow: { flexDirection: "row", alignItems: "center", marginBottom: 6 },
-  phoneText: { marginLeft: 8, color: "#10b981", fontWeight: "700" },
+  infoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  webInfoRow: {
+    marginBottom: 8,
+  },
+
+  phoneText: {
+    marginLeft: 8,
+    color: "#10b981",
+    fontWeight: "700",
+  },
+  webPhoneText: {
+    fontSize: 15,
+    fontWeight: "800",
+  },
 
   pinRow: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 10,
-    // make pin visually light
   },
-  pinLabel: { color: "#64748b", marginLeft: 6, marginRight: 4 },
-  pinValue: { marginLeft: 0, color: "#111827", fontWeight: "700" },
+  webPinRow: {
+    marginBottom: 12,
+  },
+
+  pinLabel: {
+    color: "#64748b",
+    marginLeft: 6,
+    marginRight: 4,
+  },
+  webPinLabel: {
+    fontSize: 14,
+  },
+
+  pinValue: {
+    marginLeft: 0,
+    color: "#111827",
+    fontWeight: "700",
+  },
+  webPinValue: {
+    fontSize: 15,
+    fontWeight: "800",
+  },
 
   footerRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
+  webFooterRow: {
+    marginTop: 8,
+  },
+
   callBtn: {
     backgroundColor: "#10b981",
     paddingVertical: 8,
@@ -694,42 +936,126 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
-  callBtnText: { color: "#fff", fontWeight: "700", marginLeft: 8 },
+  webCallBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+  },
 
-  rightActions: { flexDirection: "row", alignItems: "center" },
-  showMoreBtn: { paddingHorizontal: 8, paddingVertical: 6 },
-  showMoreText: { color: "#2563eb", fontWeight: "600" },
+  callBtnText: {
+    color: "#fff",
+    fontWeight: "700",
+    marginLeft: 8,
+  },
+  webCallBtnText: {
+    fontSize: 15,
+    marginLeft: 10,
+  },
 
   detailsBtn: {
-    marginLeft: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: "#e6eefc",
   },
-  detailsText: { color: "#0f172a", fontWeight: "700" },
-
-  expandedJson: {
-    marginTop: 10,
-    backgroundColor: "#f8fafc",
-    padding: 8,
-    borderRadius: 8,
+  webDetailsBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: "#f1f5f9",
+    borderColor: "#cbd5e1",
   },
-  jsonText: { fontSize: 11, color: "#0f172a" },
 
+  detailsText: {
+    color: "#0f172a",
+    fontWeight: "700",
+  },
+  webDetailsText: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#334155",
+  },
+
+  // List Content
+  listContent: {
+    marginTop: 15,
+    paddingBottom: 20,
+  },
+  webListContent: {
+    marginTop: 30,
+    gap: 20,
+  },
+
+  // Loading & Empty States
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     marginTop: 50,
   },
-  loadingText: { marginTop: 10, fontSize: 16, color: "gray" },
+  webLoadingContainer: {
+    marginTop: 100,
+  },
+
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: "gray",
+  },
+  webLoadingText: {
+    fontSize: 18,
+    color: "#64748b",
+    marginTop: 16,
+  },
+
   emptyContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     marginTop: 50,
   },
-  emptyText: { fontSize: 16, color: "gray", textAlign: "center" },
+  webEmptyContainer: {
+    marginTop: 100,
+    padding: 40,
+    backgroundColor: "white",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    maxWidth: 600,
+    alignSelf: "center",
+  },
+
+  emptyText: {
+    fontSize: 16,
+    color: "gray",
+    textAlign: "center",
+  },
+  webEmptyText: {
+    fontSize: 20,
+    color: "#475569",
+    marginBottom: 20,
+  },
+
+  clearFilterBtn: {
+    marginTop: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  webClearFilterBtn: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    backgroundColor: "#2563eb",
+    borderRadius: 10,
+  },
+
+  clearFilterText: {
+    color: "#2563eb",
+    fontWeight: "600",
+  },
+  webClearFilterText: {
+    color: "white",
+    fontWeight: "700",
+    fontSize: 16,
+  },
 });

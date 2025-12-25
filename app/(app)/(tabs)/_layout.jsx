@@ -1,11 +1,20 @@
 // app/(app)/(tabs)/_layout.tsx
-import React, { useEffect, useRef } from "react";
-import { StyleSheet, Animated, Easing, Image, View } from "react-native";
-import { Tabs } from "expo-router";
-import Ionicons from "@expo/vector-icons/Ionicons";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { DrawerToggleButton } from "@react-navigation/drawer";
+import { LinearGradient } from "expo-linear-gradient";
+import { Tabs } from "expo-router";
+import React, { useEffect, useRef } from "react";
+import {
+  Animated,
+  Easing,
+  Image,
+  Platform,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Colors from "../../../constant/Colors";
 
 /* ---------------- Animated helpers ---------------- */
@@ -65,10 +74,41 @@ function TabBarBackground() {
   );
 }
 
+/* ---------------- Header component (Home-like) ---------------- */
+
+function AppHeader() {
+  const insets = useSafeAreaInsets();
+  const top = insets.top ?? (Platform.OS === "ios" ? 44 : 24);
+
+  return (
+    <LinearGradient
+      colors={["#f7f8fa", "#f7f8fa"]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 0 }}
+      style={[styles.header, { paddingTop: top - 8 }]}
+    >
+      <View style={styles.headerLeft}>
+        <DrawerToggleButton tintColor="#111827" />
+      </View>
+
+      <Image
+        source={require("../../../assets/images/logo.png")}
+        style={styles.logo}
+        resizeMode="contain"
+      />
+
+      <View style={styles.headerRight}>
+        <TouchableOpacity style={{ padding: 8 }}>
+          <Ionicons name="notifications-outline" size={20} color="#6b7280" />
+        </TouchableOpacity>
+      </View>
+    </LinearGradient>
+  );
+}
+
 /* ---------------- Layout ---------------- */
 
 export default function TabsLayout() {
-  // keep this if you later add a FAB
   const fabScale = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     const loop = Animated.loop(
@@ -91,19 +131,24 @@ export default function TabsLayout() {
     return () => loop.stop();
   }, [fabScale]);
 
+  const insets = useSafeAreaInsets();
+  const bottomInset = insets.bottom ?? 0;
+
+  // hide header on Android phones (keeps header on iOS and Web)
+  // if you want to show header on Android tablets, replace with a width check
+  const showHeader = Platform.OS !== "android";
+
+  // Position the bar so it touches the system nav if present,
+  // or sits at the very bottom when there's no system nav (bottomInset === 0).
+  const tabBarBottom = bottomInset;
+  const tabBarHeight = 72;
+
   return (
     <Tabs
       initialRouteName="home"
       screenOptions={{
-        headerShown: false,
-        headerLeft: () => <DrawerToggleButton />, // drawer toggle button
-        headerTitle: () => (
-          <Image
-            source={require("../../../assets/images/logo.png")}
-            style={{ width: 120, height: 40 }}
-            resizeMode="contain"
-          />
-        ),
+        headerShown: showHeader,
+        header: showHeader ? () => <AppHeader /> : undefined,
         tabBarActiveTintColor: Colors.PRIME,
         tabBarInactiveTintColor: "#888",
         tabBarHideOnKeyboard: true,
@@ -112,16 +157,20 @@ export default function TabsLayout() {
           position: "absolute",
           left: 16,
           right: 16,
-          bottom: 16,
-          height: 62,
+          bottom: tabBarBottom,
+          height: tabBarHeight,
           borderRadius: 18,
           backgroundColor: "#fff",
           borderTopWidth: 1,
-          borderTopColor: "rgba(0,0,0,0.1)",
-          borderColor: "rgba(0,0,0,0.1)",
-          paddingBottom: 8,
+          borderTopColor: "rgba(0,0,0,0.06)",
+          borderColor: "rgba(0,0,0,0.06)",
+          paddingBottom: bottomInset > 0 ? Math.max(6, bottomInset * 0.35) : 8,
           paddingTop: 6,
           elevation: 8,
+          shadowColor: "#000",
+          shadowOpacity: 0.06,
+          shadowRadius: 8,
+          shadowOffset: { width: 0, height: 6 },
         },
         tabBarLabelStyle: { fontSize: 12, fontWeight: "700" },
         tabBarItemStyle: { paddingVertical: 4 },
@@ -171,19 +220,28 @@ export default function TabsLayout() {
 
 const styles = StyleSheet.create({
   header: {
-    height: 80,
+    height: 84,
     alignSelf: "stretch",
     backgroundColor: "#fff",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 25,
-    elevation: 3,
-    borderRadius: 20,
+    shadowOpacity: 0.03,
+    shadowRadius: 20,
+    elevation: 2,
+    borderBottomWidth: 0,
   },
-  logo: { width: 120, height: 40 },
-  menuBtn: { padding: 6 },
+  headerLeft: {
+    width: 48,
+    justifyContent: "center",
+    alignItems: "flex-start",
+  },
+  headerRight: {
+    width: 48,
+    justifyContent: "center",
+    alignItems: "flex-end",
+  },
+  logo: { width: 240, height: 46 },
 });

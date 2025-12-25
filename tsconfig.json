@@ -3,15 +3,19 @@
   "compilerOptions": {
     "strict": true,
     "paths": {
-      "@/*": [
-        "./*"
-      ]
+      "@/*": ["./*"]
     }
   },
   "include": [
     "**/*.ts",
     "**/*.tsx",
     ".expo/types/**/*.ts",
-    "expo-env.d.ts"
-, "app/components/_drawer.jsx", "app/utils/auth.js", "app/(app)/business/[businessId].jsx"  ]
+    "expo-env.d.ts",
+    "app/components/_drawer.jsx",
+    "app/utils/auth.js",
+    "app/(app)/business/[businessId].jsx",
+    "app/pages/TermsConditions.jsx",
+    "app/pages/PrivacyPolicy.jsx",
+    "app/pages/Agreements.jsx",
+  ]
 }

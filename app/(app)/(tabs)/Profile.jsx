@@ -1,32 +1,42 @@
-// src/screens/ProfileScreen.js
-import React, { useEffect, useCallback, useMemo, useState } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Share,
-  Image,
-  ActivityIndicator,
-  RefreshControl,
-  Platform,
-  Alert,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
-import {
+  FontAwesome5,
   Ionicons,
   MaterialCommunityIcons,
   MaterialIcons,
-  FontAwesome5,
 } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
-import { useAuth } from "../../../context/AuthContext";
+import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import api from "../../utils/auth"; // <-- ensure this path is correct
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  Image,
+  Platform,
+  RefreshControl,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useAuth } from "../../../context/AuthContext";
+import api from "../../utils/auth";
 
-/* ---------------- Helpers ---------------- */
+const isWeb = Platform.OS === "web";
+const { width: screenWidth } = Dimensions.get("window");
+const isLargeScreen = screenWidth >= 1024;
+
+/* ---------------- support contacts (as requested) ---------------- */
+const SUPPORT_EMAIL = "support@wishkro.com";
+const B2B_EMAIL = "b2b@wishkro.com";
+const JOIN_EMAIL = "join@wishkro.com";
+const WHATSAPP_NUMBER = "9990876324";
+
+/* ---------------- helpers ---------------- */
 const safeText = (v, fallback = "—") =>
   v == null ? fallback : String(v).trim() || fallback;
 
@@ -47,9 +57,6 @@ const formatDOBForDisplay = (value) => {
   return s;
 };
 
-/* Normalize different payload shapes (array / object / nested)
-   returns an array of user objects (possibly empty)
-*/
 const getUsersFromPayload = (payload) => {
   if (!payload) return [];
   if (Array.isArray(payload)) return payload;
@@ -74,13 +81,11 @@ const getUsersFromPayload = (payload) => {
       return [payload.data];
   }
 
-  // fallback: find first array inside payload values
   const arr = Object.values(payload).find((v) => Array.isArray(v));
   if (arr) return arr;
   return [];
 };
 
-/* Robust transform mapping (includes misspelled referral keys you shared) */
 const transformUserDataFromApi = (u = {}) => {
   if (!u) return {};
   const get = (k) => {
@@ -202,14 +207,11 @@ export default function ProfileScreen() {
 
   const [remoteUser, setRemoteUser] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [showFullToken, setShowFullToken] = useState(false);
 
-  // referrals state (fetched from /api/user/refferals)
   const [referralsList, setReferralsList] = useState([]);
   const [referralCodeFromEndpoint, setReferralCodeFromEndpoint] =
     useState(null);
 
-  // pick context user first, else remote fetch result
   const effectiveUser = ctxUser || remoteUser;
 
   const userData = useMemo(() => {
@@ -221,7 +223,6 @@ export default function ProfileScreen() {
     return transformUserDataFromApi(raw);
   }, [effectiveUser]);
 
-  // compute referralCount from referralsList (fallback to userData.referralCount)
   const referralCount = useMemo(() => {
     if (Array.isArray(referralsList) && referralsList.length > 0)
       return referralsList.length;
@@ -230,20 +231,15 @@ export default function ProfileScreen() {
       userData.referralCount !== undefined &&
       String(userData.referralCount).trim() !== ""
     ) {
-      // try numeric
       const asNum = Number(userData.referralCount);
       if (!isNaN(asNum)) return asNum;
-      // otherwise return raw
       return userData.referralCount;
     }
     return null;
   }, [referralsList, userData.referralCount]);
 
-  // display with IND prefix when we have a count
   const displayReferralCount = useMemo(() => {
     if (referralCount === null || referralCount === undefined) return "—";
-    // If you want the prefix "IND " (as you asked earlier), uncomment next line:
-    // return `IND ${referralCount}`;
     return `${referralCount}`;
   }, [referralCount]);
 
@@ -264,7 +260,6 @@ export default function ProfileScreen() {
           return null;
         }
 
-        // try many shapes: payload.user, payload.data.user, payload.data
         let maybeUser = null;
         if (payload.user && typeof payload.user === "object") {
           maybeUser = payload.user;
@@ -324,7 +319,6 @@ export default function ProfileScreen() {
     [token, logout]
   );
 
-  // Fetch referrals from referrals endpoint (same logic as ReferScreen)
   const fetchReferrals = useCallback(
     async (opts = { showErrors: false }) => {
       if (!token) return;
@@ -380,7 +374,6 @@ export default function ProfileScreen() {
     [token, ctxUser]
   );
 
-  // On mount: try context refresh first, otherwise direct fetch. Also fetch referrals.
   useEffect(() => {
     if (!token) return;
     (async () => {
@@ -392,7 +385,6 @@ export default function ProfileScreen() {
           await fetchProfileDirectly({ showErrors: false });
         }
       } else {
-        // if ctxUser exists but may lack referral fields, fetch profile quietly
         const raw =
           ctxUser.user && typeof ctxUser.user === "object"
             ? ctxUser.user
@@ -408,10 +400,8 @@ export default function ProfileScreen() {
         }
       }
 
-      // always attempt to fetch referrals quietly
       fetchReferrals({ showErrors: false }).catch(() => {});
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, ctxUser]);
 
   const onRefresh = useCallback(async () => {
@@ -428,10 +418,7 @@ export default function ProfileScreen() {
     }
   }, [token, refreshProfile, fetchProfileDirectly, fetchReferrals]);
 
-  // ---------- IMPORTANT CHANGE ----------
-  // Share should use senderReferral first (as requested).
   const onShare = useCallback(async () => {
-    // prefer senderReferral first
     const code =
       userData.senderReferral ||
       referralCodeFromEndpoint ||
@@ -451,7 +438,6 @@ export default function ProfileScreen() {
     userData.senderReferral,
   ]);
 
-  // Copy will mirror share behaviour (copies what share uses).
   const copyReferral = async () => {
     const code =
       userData.senderReferral ||
@@ -471,62 +457,64 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleRevealToken = () => {
-    Alert.alert(
-      "Reveal full token?",
-      "This will display the full token on-screen. Do not show on public devices.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Reveal",
-          style: "destructive",
-          onPress: () => setShowFullToken(true),
-        },
-      ]
-    );
-  };
-  const handleHideToken = () => setShowFullToken(false);
-  const handleCopyToken = async () => {
-    if (!token) {
-      Alert.alert("No token", "There is no token to copy.");
-      return;
-    }
+  // ---------- NAV: Go to Edit (passes params) ----------
+  const goToEdit = async () => {
     try {
-      await Clipboard.setStringAsync(token);
-      Alert.alert("Copied", "Token copied to clipboard.");
+      await refreshProfile?.();
     } catch (e) {
-      console.log("Clipboard error", e);
-      Alert.alert("Error", "Unable to copy token.");
+      /* ignore */
+    }
+
+    const parts = String(userData.fullName || "")
+      .split(" ")
+      .filter(Boolean);
+    const first = parts.slice(0, -1).join(" ") || parts[0] || "";
+    const last = parts.length > 1 ? parts.slice(-1)[0] : "";
+
+    const params = {
+      firstName: String(first || ""),
+      lastName: String(last || ""),
+      email: String(userData.email || ""),
+      phone: String(userData.phone || ""),
+      dob: String(userData.dob || ""),
+      pan: String(userData.pan || ""),
+      addressLine: String(userData.addressLine || ""),
+      city: String(userData.city || ""),
+      district: String(userData.district || ""),
+      pinCode: String(userData.pinCode || ""),
+      country: String(userData.country || ""),
+      accountNumber: String(userData.accountNumber || ""),
+      ifsc: String(userData.ifsc || ""),
+      bankName: String(userData.bankName || ""),
+      holderName: String(userData.holderName || ""),
+    };
+
+    try {
+      router.push({
+        pathname: "components/EditProfilepage",
+        params,
+      });
+    } catch (e) {
+      router.push("components/EditProfilepage");
     }
   };
-
-  // debug
-  useEffect(() => {
-    if (__DEV__) {
-      console.log("ProfileScreen effectiveUser:", effectiveUser);
-      console.log("ProfileScreen normalized userData:", userData);
-      console.log("ProfileScreen referralsList length:", referralsList.length);
-      console.log(
-        "ProfileScreen referralCodeFromEndpoint:",
-        referralCodeFromEndpoint
-      );
-    }
-  }, [effectiveUser, userData, referralsList, referralCodeFromEndpoint]);
 
   /* ---------- Guards ---------- */
   if (!hydrated) {
     return (
-      <SafeAreaView style={styles.centered}>
+      <SafeAreaView style={[styles.centered, isWeb && styles.webCentered]}>
         <ActivityIndicator size="large" />
-        <Text style={{ marginTop: 10, color: "#6b7280" }}>Loading...</Text>
+        <Text style={[styles.loadingText, isWeb && styles.webLoadingText]}>
+          Loading...
+        </Text>
       </SafeAreaView>
     );
   }
 
   if (!token) {
     return (
-      <SafeAreaView style={[styles.centered, { padding: 24 }]}>
-        <Text style={{ fontSize: 16, color: "#6b7280", textAlign: "center" }}>
+      <SafeAreaView style={[styles.centered, isWeb && styles.webCentered]}>
+        <Text style={[styles.noAuthText, isWeb && styles.webNoAuthText]}>
           You're not signed in. Please log in to view your profile.
         </Text>
       </SafeAreaView>
@@ -535,9 +523,9 @@ export default function ProfileScreen() {
 
   if (!effectiveUser && (ctxLoading || loading)) {
     return (
-      <SafeAreaView style={styles.centered}>
+      <SafeAreaView style={[styles.centered, isWeb && styles.webCentered]}>
         <ActivityIndicator size="large" />
-        <Text style={{ marginTop: 10, color: "#6b7280" }}>
+        <Text style={[styles.loadingText, isWeb && styles.webLoadingText]}>
           Loading profile...
         </Text>
       </SafeAreaView>
@@ -546,19 +534,17 @@ export default function ProfileScreen() {
 
   if (!effectiveUser && !ctxLoading && !loading) {
     return (
-      <SafeAreaView style={[styles.centered, { padding: 24 }]}>
-        <Text
-          style={{
-            fontSize: 16,
-            color: "#6b7280",
-            textAlign: "center",
-            marginBottom: 20,
-          }}
-        >
+      <SafeAreaView style={[styles.centered, isWeb && styles.webCentered]}>
+        <Text style={[styles.errorText, isWeb && styles.webErrorText]}>
           Failed to load profile data.
         </Text>
-        <TouchableOpacity style={styles.retryBtn} onPress={() => onRefresh()}>
-          <Text style={{ color: "#2f66ff", fontWeight: "600" }}>Retry</Text>
+        <TouchableOpacity
+          style={[styles.retryBtn, isWeb && styles.webRetryBtn]}
+          onPress={() => onRefresh()}
+        >
+          <Text style={[styles.retryText, isWeb && styles.webRetryText]}>
+            Retry
+          </Text>
         </TouchableOpacity>
       </SafeAreaView>
     );
@@ -566,9 +552,12 @@ export default function ProfileScreen() {
 
   /* ---------- Render ---------- */
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: "#f7f8fb" }}>
+    <SafeAreaView style={[styles.container, isWeb && styles.webContainer]}>
       <ScrollView
-        contentContainerStyle={{ padding: 16, paddingBottom: 120 }}
+        contentContainerStyle={[
+          styles.scrollContent,
+          isWeb && styles.webScrollContent,
+        ]}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -577,254 +566,353 @@ export default function ProfileScreen() {
           />
         }
       >
-        <View style={styles.headerWrap}>
+        {/* Header Section */}
+        <View style={[styles.headerWrap, isWeb && styles.webHeaderWrap]}>
           <LinearGradient
             colors={["#2f66ff", "#6a9bff"]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={styles.headerCard}
+            style={[styles.headerCard, isWeb && styles.webHeaderCard]}
           >
-            <View style={{ flex: 1 }}>
-              <Text style={styles.name}>{safeText(userData.fullName)}</Text>
-              <Text style={styles.email}>{safeText(userData.email)}</Text>
-              <Text style={styles.phone}>{safeText(userData.phone)}</Text>
+            <View
+              style={[styles.headerContent, isWeb && styles.webHeaderContent]}
+            >
+              <Text style={[styles.name, isWeb && styles.webName]}>
+                {safeText(userData.fullName)}
+              </Text>
+              <Text style={[styles.email, isWeb && styles.webEmail]}>
+                {safeText(userData.email)}
+              </Text>
+              <Text style={[styles.phone, isWeb && styles.webPhone]}>
+                {safeText(userData.phone)}
+              </Text>
             </View>
 
             <TouchableOpacity
-              style={styles.editBtn}
+              style={[styles.editBtn, isWeb && styles.webEditBtn]}
               activeOpacity={0.85}
-              onPress={() => router.push("components/EditProfilepage")}
+              onPress={goToEdit}
             >
-              <Ionicons name="pencil" size={16} color="#fff" />
-              <Text style={styles.editText}>Edit</Text>
+              <Ionicons name="pencil" size={isWeb ? 20 : 16} color="#fff" />
+              <Text style={[styles.editText, isWeb && styles.webEditText]}>
+                Edit Profile
+              </Text>
             </TouchableOpacity>
           </LinearGradient>
 
-          <View style={styles.avatarWrap}>
+          <View style={[styles.avatarWrap, isWeb && styles.webAvatarWrap]}>
             {userData.raw?.avatar ? (
               <Image
                 source={{ uri: userData.raw.avatar }}
-                style={styles.avatar}
+                style={[styles.avatar, isWeb && styles.webAvatar]}
               />
             ) : (
               <MaterialCommunityIcons
                 name="account"
-                size={44}
+                size={isWeb ? 60 : 44}
                 color="#9ca3af"
               />
             )}
           </View>
         </View>
 
-        {/* PERSONAL */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
+        {/* PERSONAL INFO CARD - Single Column for both mobile and web */}
+        <View style={[styles.card, isWeb && styles.webCard]}>
+          <View style={[styles.cardHeader, isWeb && styles.webCardHeader]}>
             <View style={styles.cardHeaderLeft}>
-              <Ionicons name="person" size={16} color="#6b7280" />
-              <Text style={styles.cardTitle}>Personal Info</Text>
+              <Ionicons name="person" size={isWeb ? 20 : 16} color="#6b7280" />
+              <Text style={[styles.cardTitle, isWeb && styles.webCardTitle]}>
+                Personal Info
+              </Text>
             </View>
           </View>
 
-          <View style={{ paddingHorizontal: 14, paddingBottom: 12 }}>
+          <View style={[styles.cardBody, isWeb && styles.webCardBody]}>
             <Row
               label="Full Name"
-              icon={<FontAwesome5 name="id-card" size={14} color="#4b5563" />}
+              icon={
+                <FontAwesome5
+                  name="id-card"
+                  size={isWeb ? 16 : 14}
+                  color="#4b5563"
+                />
+              }
               value={userData.fullName}
+              isWeb={isWeb}
             />
             <Row
               label="Email"
-              icon={<Ionicons name="mail" size={16} color="#4b5563" />}
+              icon={
+                <Ionicons name="mail" size={isWeb ? 18 : 16} color="#4b5563" />
+              }
               value={userData.email}
+              isWeb={isWeb}
             />
             <Row
               label="Phone"
-              icon={<Ionicons name="call" size={16} color="#4b5563" />}
+              icon={
+                <Ionicons name="call" size={isWeb ? 18 : 16} color="#4b5563" />
+              }
               value={userData.phone}
+              isWeb={isWeb}
             />
             <Row
               label="DOB"
               icon={
                 <MaterialCommunityIcons
                   name="calendar"
-                  size={16}
+                  size={isWeb ? 18 : 16}
                   color="#4b5563"
                 />
               }
               value={formatDOBForDisplay(userData.dob)}
+              isWeb={isWeb}
             />
             <Row
               label="PAN"
-              icon={<FontAwesome5 name="passport" size={14} color="#4b5563" />}
+              icon={
+                <FontAwesome5
+                  name="passport"
+                  size={isWeb ? 16 : 14}
+                  color="#4b5563"
+                />
+              }
               value={userData.pan}
+              isWeb={isWeb}
             />
           </View>
         </View>
 
-        {/* REFERRAL */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
+        {/* REFERRAL INFO CARD - Single Column for both mobile and web */}
+        <View style={[styles.card, isWeb && styles.webCard]}>
+          <View style={[styles.cardHeader, isWeb && styles.webCardHeader]}>
             <View style={styles.cardHeaderLeft}>
               <MaterialCommunityIcons
                 name="gift-outline"
-                size={16}
+                size={isWeb ? 20 : 16}
                 color="#6b7280"
               />
-              <Text style={styles.cardTitle}>Referral Info</Text>
+              <Text style={[styles.cardTitle, isWeb && styles.webCardTitle]}>
+                Referral Info
+              </Text>
             </View>
           </View>
 
-          <View style={{ paddingHorizontal: 14, paddingBottom: 12 }}>
+          <View style={[styles.cardBody, isWeb && styles.webCardBody]}>
             <Row
               label="Your Referral"
-              icon={<Ionicons name="person-add" size={16} color="#4b5563" />}
-              // prefer code from referrals endpoint then user data
-              value={
-                referralCodeFromEndpoint ||
-                userData.referralCode ||
-                userData.senderReferral
+              icon={
+                <Ionicons
+                  name="person-add"
+                  size={isWeb ? 18 : 16}
+                  color="#4b5563"
+                />
               }
-            />
-            <Row
-              label="Sender Referral"
-              icon={<Ionicons name="people" size={16} color="#4b5563" />}
-              value={userData.senderReferral}
-            />
-            <Row
-              label="Referral Count"
-              icon={<Ionicons name="stats-chart" size={16} color="#4b5563" />}
-              value={displayReferralCount}
+              value={
+                referralCodeFromEndpoint
+                  ? `IND${referralCodeFromEndpoint}`
+                  : userData?.referralCode
+                  ? `IND${userData.referralCode}`
+                  : userData?.senderReferral
+                  ? `IND${userData.senderReferral}`
+                  : "—"
+              }
+              isWeb={isWeb}
             />
 
-            {/* Buttons: copy and share (commented out) */}
-            {/* <View style={{ flexDirection: "row", marginTop: 12 }}>
-              ...
-            </View> */}
+            <Row
+              label="Sender Referral"
+              icon={
+                <Ionicons
+                  name="people"
+                  size={isWeb ? 18 : 16}
+                  color="#4b5563"
+                />
+              }
+              value={
+                userData?.senderReferral ? `IND${userData.senderReferral}` : "—"
+              }
+              isWeb={isWeb}
+            />
+
+            <Row
+              label="Referral Count"
+              icon={
+                <Ionicons
+                  name="stats-chart"
+                  size={isWeb ? 18 : 16}
+                  color="#4b5563"
+                />
+              }
+              value={displayReferralCount}
+              isWeb={isWeb}
+            />
           </View>
         </View>
 
-        {/* ADDRESS */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
+        {/* ADDRESS INFO CARD - Single Column for both mobile and web */}
+        <View style={[styles.card, isWeb && styles.webCard]}>
+          <View style={[styles.cardHeader, isWeb && styles.webCardHeader]}>
             <View style={styles.cardHeaderLeft}>
-              <MaterialIcons name="home-work" size={16} color="#6b7280" />
-              <Text style={styles.cardTitle}>Address Info</Text>
+              <MaterialIcons
+                name="home-work"
+                size={isWeb ? 20 : 16}
+                color="#6b7280"
+              />
+              <Text style={[styles.cardTitle, isWeb && styles.webCardTitle]}>
+                Address Info
+              </Text>
             </View>
           </View>
-          <View style={{ paddingHorizontal: 14, paddingBottom: 12 }}>
+          <View style={[styles.cardBody, isWeb && styles.webCardBody]}>
             <Row
               label="Pin Code"
               icon={
-                <MaterialIcons name="location-pin" size={18} color="#ef4444" />
+                <MaterialIcons
+                  name="location-pin"
+                  size={isWeb ? 20 : 18}
+                  color="#ef4444"
+                />
               }
               value={userData.pinCode}
+              isWeb={isWeb}
             />
             <Row
               label="City"
               icon={
-                <MaterialIcons name="location-city" size={16} color="#4b5563" />
+                <MaterialIcons
+                  name="location-city"
+                  size={isWeb ? 18 : 16}
+                  color="#4b5563"
+                />
               }
               value={userData.city}
+              isWeb={isWeb}
             />
             <Row
               label="District"
-              icon={<Ionicons name="map" size={16} color="#4b5563" />}
+              icon={
+                <Ionicons name="map" size={isWeb ? 18 : 16} color="#4b5563" />
+              }
               value={userData.district}
+              isWeb={isWeb}
             />
             <Row
               label="Country"
-              icon={<Ionicons name="flag" size={16} color="#4b5563" />}
+              icon={
+                <Ionicons name="flag" size={isWeb ? 18 : 16} color="#4b5563" />
+              }
               value={userData.country}
+              isWeb={isWeb}
             />
             <Row
               label="Address"
-              icon={<Ionicons name="home" size={16} color="#4b5563" />}
+              icon={
+                <Ionicons name="home" size={isWeb ? 18 : 16} color="#4b5563" />
+              }
               value={userData.addressLine}
+              isWeb={isWeb}
             />
           </View>
         </View>
 
-        {/* PAYOUT */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
+        {/* PAYOUT DETAILS CARD - Single Column for both mobile and web */}
+        <View style={[styles.card, isWeb && styles.webCard]}>
+          <View style={[styles.cardHeader, isWeb && styles.webCardHeader]}>
             <View style={styles.cardHeaderLeft}>
               <MaterialCommunityIcons
                 name="bank-outline"
-                size={16}
+                size={isWeb ? 20 : 16}
                 color="#6b7280"
               />
-              <Text style={styles.cardTitle}>Payout Details</Text>
+              <Text style={[styles.cardTitle, isWeb && styles.webCardTitle]}>
+                Payout Details
+              </Text>
             </View>
           </View>
-          <View style={{ paddingHorizontal: 14, paddingBottom: 12 }}>
+          <View style={[styles.cardBody, isWeb && styles.webCardBody]}>
             <Row
               label="Bank Account"
               icon={
                 <MaterialCommunityIcons
                   name="card-text-outline"
-                  size={16}
+                  size={isWeb ? 18 : 16}
                   color="#4b5563"
                 />
               }
               value={userData.accountNumber}
+              isWeb={isWeb}
             />
             <Row
               label="IFSC"
               icon={
                 <MaterialCommunityIcons
                   name="numeric"
-                  size={16}
+                  size={isWeb ? 18 : 16}
                   color="#4b5563"
                 />
               }
               value={userData.ifsc}
+              isWeb={isWeb}
             />
             <Row
               label="Bank Name"
               icon={
                 <MaterialCommunityIcons
                   name="office-building-outline"
-                  size={16}
+                  size={isWeb ? 18 : 16}
                   color="#4b5563"
                 />
               }
               value={userData.bankName}
+              isWeb={isWeb}
             />
             <Row
               label="Holder Name"
               icon={
                 <MaterialCommunityIcons
                   name="account-outline"
-                  size={16}
+                  size={isWeb ? 18 : 16}
                   color="#4b5563"
                 />
               }
               value={userData.holderName}
+              isWeb={isWeb}
             />
           </View>
         </View>
 
+        {/* Share Button */}
         <TouchableOpacity
-          style={styles.shareBtn}
+          style={[styles.shareBtn, isWeb && styles.webShareBtn]}
           activeOpacity={0.9}
           onPress={onShare}
         >
-          <Ionicons name="share-social" size={18} color="#fff" />
-          <Text style={styles.shareText}>Share Referral Link</Text>
+          <Ionicons name="share-social" size={isWeb ? 22 : 18} color="#fff" />
+          <Text style={[styles.shareText, isWeb && styles.webShareText]}>
+            Share Referral Link
+          </Text>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-/* small Row component used throughout */
-const Row = ({ icon, label, value }) => (
-  <View style={styles.row}>
-    <View style={styles.rowLeft}>
+/* Row Component with Web Support */
+const Row = ({ icon, label, value, isWeb }) => (
+  <View style={[styles.row, isWeb && styles.webRow]}>
+    <View style={[styles.rowLeft, isWeb && styles.webRowLeft]}>
       {icon}
-      <Text style={styles.rowLabel}>{label}</Text>
+      <Text style={[styles.rowLabel, isWeb && styles.webRowLabel]}>
+        {label}
+      </Text>
     </View>
-    <View style={styles.rowRight}>
-      <Text style={styles.rowValue} numberOfLines={1} ellipsizeMode="tail">
+    <View style={[styles.rowRight, isWeb && styles.webRowRight]}>
+      <Text
+        style={[styles.rowValue, isWeb && styles.webRowValue]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+      >
         {safeText(value)}
       </Text>
     </View>
@@ -835,8 +923,106 @@ const CARD_BG = "#ffffff";
 const BORDER = "rgba(0,0,0,0.08)";
 
 const styles = StyleSheet.create({
-  centered: { flex: 1, alignItems: "center", justifyContent: "center" },
-  headerWrap: { marginBottom: 54 },
+  // Centered Loading/Error States
+  centered: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#f7f8fb",
+  },
+  webCentered: {
+    minHeight: "100vh",
+    paddingTop: 100,
+  },
+
+  loadingText: {
+    marginTop: 10,
+    color: "#6b7280",
+    fontSize: 16,
+  },
+  webLoadingText: {
+    fontSize: 18,
+    marginTop: 20,
+  },
+
+  noAuthText: {
+    fontSize: 16,
+    color: "#6b7280",
+    textAlign: "center",
+    padding: 20,
+  },
+  webNoAuthText: {
+    fontSize: 20,
+    maxWidth: 500,
+    lineHeight: 28,
+  },
+
+  errorText: {
+    fontSize: 16,
+    color: "#6b7280",
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  webErrorText: {
+    fontSize: 20,
+    marginBottom: 30,
+  },
+
+  retryBtn: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: "#2f66ff",
+    borderRadius: 8,
+  },
+  webRetryBtn: {
+    paddingHorizontal: 32,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 2,
+  },
+
+  retryText: {
+    color: "#2f66ff",
+    fontWeight: "600",
+  },
+  webRetryText: {
+    fontSize: 16,
+    fontWeight: "700",
+  },
+
+  // Main Container
+  container: {
+    flex: 1,
+    backgroundColor: "#f7f8fb",
+  },
+  webContainer: {
+    maxWidth: isLargeScreen ? 1200 : "100%",
+    alignSelf: "center",
+    width: "100%",
+  },
+
+  // Scroll Content
+  scrollContent: {
+    padding: 16,
+    paddingBottom: 120,
+  },
+  webScrollContent: {
+    padding: isLargeScreen ? 40 : 24,
+    paddingBottom: 160,
+    maxWidth: 1200,
+    alignSelf: "center",
+    width: "100%",
+  },
+
+  // Header Section
+  headerWrap: {
+    marginBottom: 54,
+  },
+  webHeaderWrap: {
+    marginBottom: 70,
+  },
+
   headerCard: {
     minHeight: 130,
     borderRadius: 16,
@@ -847,6 +1033,56 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
     elevation: 6,
   },
+  webHeaderCard: {
+    minHeight: 150,
+    borderRadius: 20,
+    padding: 24,
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+  },
+
+  headerContent: {
+    flex: 1,
+  },
+  webHeaderContent: {
+    marginBottom: 8,
+  },
+
+  name: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "800",
+    width: "100%",
+  },
+  webName: {
+    fontSize: 28,
+    fontWeight: "900",
+  },
+
+  email: {
+    color: "rgba(255,255,255,0.9)",
+    marginTop: 4,
+    width: "100%",
+    fontSize: 14,
+  },
+  webEmail: {
+    fontSize: 16,
+    marginTop: 6,
+  },
+
+  phone: {
+    color: "rgba(255,255,255,0.95)",
+    marginTop: 2,
+    letterSpacing: 0.3,
+    width: "100%",
+    fontSize: 14,
+  },
+  webPhone: {
+    fontSize: 16,
+    marginTop: 4,
+  },
+
   editBtn: {
     position: "absolute",
     right: 12,
@@ -859,16 +1095,26 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "rgba(255,255,255,0.6)",
+    backgroundColor: "rgba(255,255,255,0.2)",
   },
-  editText: { color: "#fff", fontWeight: "700", fontSize: 12 },
-  name: { color: "#fff", fontSize: 20, fontWeight: "800", width: "100%" },
-  email: { color: "rgba(255,255,255,0.9)", marginTop: 4, width: "100%" },
-  phone: {
-    color: "rgba(255,255,255,0.95)",
-    marginTop: 2,
-    letterSpacing: 0.3,
-    width: "100%",
+  webEditBtn: {
+    right: 20,
+    top: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
   },
+
+  editText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  webEditText: {
+    fontSize: 14,
+  },
+
   avatarWrap: {
     position: "absolute",
     left: 24,
@@ -887,18 +1133,51 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 6,
   },
-  avatar: { width: 64, height: 64, borderRadius: 32 },
+  webAvatarWrap: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    bottom: -35,
+    left: 40,
+    borderWidth: 4,
+    borderColor: "#fff",
+  },
+
+  avatar: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+  },
+  webAvatar: {
+    width: 92,
+    height: 92,
+    borderRadius: 46,
+  },
+
+  // Card Styles - Single Column for both
   card: {
     backgroundColor: CARD_BG,
     borderRadius: 12,
-    marginBottom: 14,
+    marginBottom: 16,
     shadowColor: "#000",
     shadowOpacity: 0.06,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 3 },
     elevation: 2,
     overflow: "hidden",
+    width: "100%",
   },
+  webCard: {
+    marginBottom: 24,
+    borderRadius: 16,
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+  },
+
   cardHeader: {
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -906,8 +1185,36 @@ const styles = StyleSheet.create({
     borderBottomColor: BORDER,
     backgroundColor: "#fff",
   },
-  cardHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
-  cardTitle: { fontSize: 15, fontWeight: "700", color: "#111827" },
+  webCardHeader: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+
+  cardHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+
+  cardTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  webCardTitle: {
+    fontSize: 18,
+  },
+
+  cardBody: {
+    paddingHorizontal: 14,
+    paddingBottom: 12,
+  },
+  webCardBody: {
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+  },
+
+  // Row Styles
   row: {
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -918,6 +1225,11 @@ const styles = StyleSheet.create({
     gap: 12,
     minHeight: 44,
   },
+  webRow: {
+    paddingVertical: 12,
+    minHeight: 48,
+  },
+
   rowLeft: {
     flexDirection: "row",
     alignItems: "center",
@@ -925,12 +1237,22 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  webRowLeft: {
+    gap: 10,
+  },
+
   rowLabel: {
     color: "#374151",
     fontSize: 14,
     flexShrink: 0,
     minWidth: 80,
   },
+  webRowLabel: {
+    fontSize: 15,
+    minWidth: 120,
+    fontWeight: "600",
+  },
+
   rowRight: {
     flexDirection: "row",
     alignItems: "center",
@@ -938,14 +1260,25 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "flex-end",
   },
+  webRowRight: {
+    flex: 1.5,
+  },
+
   rowValue: {
     color: "#6b7280",
     fontSize: 14,
     textAlign: "right",
     flex: 1,
   },
+  webRowValue: {
+    fontSize: 15,
+    fontWeight: "500",
+  },
+
+  // Share Button
   shareBtn: {
-    marginTop: 6,
+    marginTop: 16,
+    marginBottom: 30,
     alignSelf: "center",
     backgroundColor: "#2f66ff",
     flexDirection: "row",
@@ -960,12 +1293,24 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 4,
   },
-  shareText: { color: "#fff", fontWeight: "700" },
-  retryBtn: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: "#2f66ff",
-    borderRadius: 8,
+  webShareBtn: {
+    marginTop: 30,
+    marginBottom: 60,
+    paddingHorizontal: 32,
+    paddingVertical: 16,
+    borderRadius: 16,
+    gap: 12,
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+  },
+
+  shareText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 16,
+  },
+  webShareText: {
+    fontSize: 18,
   },
 });

@@ -1,18 +1,22 @@
+// app/index.tsx
+import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
 import React, { useEffect } from "react";
 import {
-  View,
+  ActivityIndicator,
+  Dimensions,
+  Image,
+  StatusBar,
+  StyleSheet,
   Text,
   TouchableOpacity,
-  Image,
-  StyleSheet,
-  Dimensions,
-  SafeAreaView,
-  StatusBar,
-  ActivityIndicator,
+  View,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { useAuth } from "../context/AuthContext";
-import { useRouter } from "expo-router";
 
 const { width, height } = Dimensions.get("window");
 const LOGO_SIZE = Math.min(width, height) * 0.35;
@@ -20,11 +24,15 @@ const LOGO_SIZE = Math.min(width, height) * 0.35;
 const WHITE = "#ffffff";
 const BRAND = "#ff0080";
 
-export default function Index() {
-  const { hydrated, token } = useAuth();
-  const router = useRouter(); // ✅ move here
+const IndexScreen: React.FC = () => {
+  // cast to any if your useAuth is not typed yet
+  const { hydrated, token } = (useAuth() as any) ?? {
+    hydrated: false,
+    token: null,
+  };
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
 
-  // If we already have a token in storage, go straight to Home.
   useEffect(() => {
     if (!hydrated) return;
     if (token) {
@@ -32,9 +40,17 @@ export default function Index() {
     }
   }, [hydrated, token, router]);
 
+  const go = (path: string) => {
+    try {
+      router.push(path);
+    } catch (e) {
+      console.warn("Navigation error:", e);
+    }
+  };
+
   if (!hydrated) {
     return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+      <View style={styles.loadingWrap}>
         <ActivityIndicator />
       </View>
     );
@@ -52,7 +68,15 @@ export default function Index() {
         translucent
         backgroundColor="transparent"
       />
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView
+        style={[
+          styles.safe,
+          {
+            paddingTop: Math.max(insets.top, 12),
+            paddingBottom: Math.max(insets.bottom, 20),
+          },
+        ]}
+      >
         <Image
           source={require("../assets/images/logo.png")}
           style={styles.logo}
@@ -65,7 +89,6 @@ export default function Index() {
             Explore amazing deals and win big with our interactive platform.
           </Text>
 
-          {/* Sign Up */}
           <TouchableOpacity
             activeOpacity={0.9}
             onPress={() => router.push("/auth/SignupPage")}
@@ -81,7 +104,6 @@ export default function Index() {
             </LinearGradient>
           </TouchableOpacity>
 
-          {/* Login */}
           <TouchableOpacity
             style={[styles.btnWrap, styles.secondaryBtn]}
             activeOpacity={0.9}
@@ -91,17 +113,25 @@ export default function Index() {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.footerRow}>
-          <Text style={styles.footerText}>Privacy</Text>
+        <View style={[styles.footerRow, { marginBottom: 8 }]}>
+          <TouchableOpacity onPress={() => go("/pages/PrivacyPolicy")}>
+            <Text style={styles.footerText}>Privacy</Text>
+          </TouchableOpacity>
           <View style={styles.dot} />
-          <Text style={styles.footerText}>Terms</Text>
+          <TouchableOpacity onPress={() => go("/pages/TermsConditions")}>
+            <Text style={styles.footerText}>Terms</Text>
+          </TouchableOpacity>
           <View style={styles.dot} />
-          <Text style={styles.footerText}>Support</Text>
+          <TouchableOpacity onPress={() => go("/pages/Agreements")}>
+            <Text style={styles.footerText}>Agreements</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     </LinearGradient>
   );
-}
+};
+
+export default IndexScreen;
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
@@ -109,15 +139,14 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     paddingHorizontal: 24,
-    paddingTop: 18,
     justifyContent: "space-between",
-    marginTop: 48,
   },
+  loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center" },
   logo: {
     width: LOGO_SIZE,
     height: LOGO_SIZE,
     resizeMode: "contain",
-    marginTop: 48,
+    marginTop: 8,
   },
   content: {
     width: "100%",
@@ -126,7 +155,6 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     paddingHorizontal: 16,
     gap: 12,
-    marginBottom: 48,
   },
   btnWrap: { width: "100%", alignSelf: "center" },
   primaryBtn: {
@@ -198,7 +226,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    marginBottom: 18,
   },
   footerText: { color: WHITE, opacity: 0.9, fontSize: 13.5, fontWeight: "600" },
   dot: {
